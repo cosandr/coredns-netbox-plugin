@@ -16,12 +16,12 @@ package netbox
 
 import (
 	"errors"
-	"github.com/coredns/coredns/core/dnsserver"
-	"github.com/coredns/coredns/plugin"
-	"github.com/coredns/coredns/plugin/metrics"
 	"time"
 
-	"github.com/caddyserver/caddy"
+	"github.com/coredns/coredns/core/dnsserver"
+	"github.com/coredns/coredns/plugin"
+
+	"github.com/coredns/caddy"
 )
 
 // init registers this plugin.
@@ -35,14 +35,6 @@ func setup(c *caddy.Controller) error {
 	if err != nil {
 		return plugin.Error("netbox", err)
 	}
-
-	// Add a startup function that will -- after all plugins have been loaded -- check if the
-	// prometheus plugin has been used - if so we will export metrics. We can only register
-	// this metric once, hence the "once.Do".
-	c.OnStartup(func() error {
-		once.Do(func() { metrics.MustRegister(c, requestCount) })
-		return nil
-	})
 
 	// Add the Plugin to CoreDNS, so Servers can use it in their plugin chain.
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
@@ -97,7 +89,7 @@ func newNetBox(c *caddy.Controller) (Netbox, error) {
 	}
 
 	if url == "" || token == "" || localCacheDuration == "" {
-		return Netbox{}, errors.New("Could not parse netbox config")
+		return Netbox{}, errors.New("could not parse netbox config")
 	}
 
 	return Netbox{Url: url, Token: token, CacheDuration: duration}, nil

@@ -16,22 +16,15 @@ package netbox
 
 import (
 	"context"
-	"io"
 	"net"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/metrics"
-	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 )
-
-// Define log to be a logger with the plugin name in it. This way we can just use log.Info and
-// friends to log.
-var log = clog.NewWithPlugin("netbox")
 
 type Netbox struct {
 	Url           string
@@ -69,6 +62,3 @@ func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 
 // Name implements the Handler interface.
 func (n Netbox) Name() string { return "netbox" }
-
-// Make out a reference to os.Stdout so we can easily overwrite it for testing.
-var out io.Writer = os.Stdout
