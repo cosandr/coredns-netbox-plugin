@@ -38,6 +38,7 @@ func setup(c *caddy.Controller) error {
 
 	// Add the Plugin to CoreDNS, so Servers can use it in their plugin chain.
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
+		netboxPlugin.Next = next
 		return netboxPlugin
 	})
 
