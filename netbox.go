@@ -1,3 +1,4 @@
+// Copyright 2021 Andrei Costescu <andrei@costescu.no>
 // Copyright 2020 Oz Tiram <oz.tiram@gmail.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,9 +23,12 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/metrics"
+	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 )
+
+var log = clog.NewWithPlugin("netbox")
 
 type Netbox struct {
 	Url           string
@@ -35,12 +39,11 @@ type Netbox struct {
 
 func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 
-	answers := []dns.RR{}
 	state := request.Request{W: w, Req: r}
 
-	ip_address := query(n.Url, n.Token, strings.TrimRight(state.QName(), "."), n.CacheDuration)
+	ipAddress := query(ctx, n.Url, n.Token, strings.TrimRight(state.QName(), "."), n.CacheDuration)
 	// no IP is found in netbox pass processing to the next plugin
-	if len(ip_address) == 0 {
+	if len(ipAddress) == 0 {
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
 	}
 
@@ -50,10 +53,9 @@ func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 
 	rec := new(dns.A)
 	rec.Hdr = dns.RR_Header{Name: state.QName(), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600}
-	rec.A = net.ParseIP(ip_address)
-	answers = append(answers, rec)
+	rec.A = net.ParseIP(ipAddress)
 	m := new(dns.Msg)
-	m.Answer = answers
+	m.Answer = []dns.RR{rec}
 	m.SetReply(r)
 	w.WriteMsg(m)
 
