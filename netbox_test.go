@@ -16,12 +16,13 @@ package netbox
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
 	"github.com/coredns/coredns/plugin/test"
 	"github.com/miekg/dns"
 	"gopkg.in/h2non/gock.v1"
-	"testing"
-	"time"
 )
 
 func TestNetbox(t *testing.T) {

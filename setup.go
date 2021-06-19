@@ -1,3 +1,4 @@
+// Copyright 2021 Andrei Costescu <andrei@costescu.no>
 // Copyright 2020 Oz Tiram <oz.tiram@gmail.com>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
