@@ -19,7 +19,6 @@ import (
 	"context"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/metrics"
@@ -31,17 +30,34 @@ import (
 var log = clog.NewWithPlugin("netbox")
 
 type Netbox struct {
-	Url           string
-	Token         string
-	CacheDuration time.Duration
-	Next          plugin.Handler
+	Url   string
+	Token string
+	Next  plugin.Handler
 }
 
 func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
-
 	state := request.Request{W: w, Req: r}
+	search := strings.TrimRight(state.QName(), ".")
 
-	ipAddress := query(ctx, n.Url, n.Token, strings.TrimRight(state.QName(), "."), n.CacheDuration)
+	log.Debugf("searching for '%s', %d names in cache", search, len(localCache))
+	ipAddress, ok := localCache[search]
+	// Not in cache, update it
+	if !ok {
+		log.Debugf("'%s' not in cache", search)
+		err := updateCache(ctx, n.Url, n.Token)
+		if err != nil {
+			log.Error(err)
+			return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+		}
+		ipAddress, ok = localCache[search]
+		if !ok {
+			log.Debugf("did not find %s", search)
+			return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+		}
+	} else {
+		log.Debugf("'%s' in cache", search)
+	}
+	log.Debugf("found %s: %s", search, ipAddress)
 	// no IP is found in netbox pass processing to the next plugin
 	if len(ipAddress) == 0 {
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
@@ -57,7 +73,12 @@ func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 	m := new(dns.Msg)
 	m.Answer = []dns.RR{rec}
 	m.SetReply(r)
-	w.WriteMsg(m)
+	err := w.WriteMsg(m)
+
+	if err != nil {
+		log.Error(err)
+		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+	}
 
 	return dns.RcodeSuccess, nil
 }

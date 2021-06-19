@@ -21,70 +21,116 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/imkira/go-ttlmap"
 )
 
+type Records struct {
+	Count    int     `json:"count"`
+	Next     *string `json:"next"`
+	Previous *string `json:"previous"`
+	Records  []IP    `json:"results"`
+}
+
 type IP struct {
-	Address string `json:"address"`
+	ID        int       `json:"id"`
+	Address   string    `json:"address"`
+	Interface Interface `json:"interface"`
+	Family    Family    `json:"family"`
 }
 
-type Record struct {
-	PrimaryIP4 IP     `json:"primary_ip4"`
-	Name       string `json:"name,omitempty"`
+type Family struct {
+	Value int    `json:"value"`
+	Label string `json:"label"`
 }
 
-type RecordsList struct {
-	Records []Record `json:"results"`
+type Interface struct {
+	ID             int             `json:"id"`
+	Name           string          `json:"name"`
+	Device         *Device         `json:"device,omitempty"`
+	VirtualMachine *VirtualMachine `json:"virtual_machine,omitempty"`
 }
 
-var localCache = ttlmap.New(nil)
+type VirtualMachine struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+type Device struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+}
+
+var localCache map[string]string
 var client = &http.Client{Timeout: 5 * time.Second}
 
-func query(ctx context.Context, url, token, dnsName string, duration time.Duration) string {
-	item, err := localCache.Get(dnsName)
-	if err == nil {
-		log.Debugf("found in local cache %s", dnsName)
-		return item.Value().(string)
-	}
-	records := RecordsList{}
-	var resp *http.Response
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/api/dcim/devices/", url), nil)
+func doRequest(ctx context.Context, url, token string) (*Records, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		log.Errorf("cannot create request %v", err)
-		return ""
+		return nil, err
 	}
 	q := req.URL.Query()
-	q.Add("name", dnsName)
+	q.Add("limit", "300")
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
 
 	log.Debugf("GET %s", req.URL.String())
-	resp, err = client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		log.Errorf("HTTP Error %v", err)
-		return ""
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		log.Errorf("invalid response code %d", resp.StatusCode)
-		return ""
+		return nil, fmt.Errorf("invalid response code %d", resp.StatusCode)
 	}
 	defer resp.Body.Close()
 
+	records := Records{}
 	err = json.NewDecoder(resp.Body).Decode(&records)
 	if err != nil {
-		log.Errorf("could not unmarshal response %v", err)
-		return ""
+		return nil, fmt.Errorf("could not unmarshal response %v", err)
 	}
+	return &records, nil
+}
 
-	if len(records.Records) == 0 {
-		log.Debug("record not found")
-		return ""
+func updateCache(ctx context.Context, url, token string) error {
+	records, err := doRequest(ctx, fmt.Sprintf("%s/api/ipam/ip-addresses/", url), token)
+	if err != nil {
+		return err
 	}
-
-	ipAddress := strings.Split(records.Records[0].PrimaryIP4.Address, "/")[0]
-	log.Debugf("record found %s", ipAddress)
-	localCache.Set(dnsName, ttlmap.NewItem(ipAddress, ttlmap.WithTTL(duration)), nil)
-	return ipAddress
+	// Reset cache
+	localCache = make(map[string]string)
+	// Get all results
+	for {
+		for _, ip := range records.Records {
+			// Only IPv4
+			if ip.Family.Value != 4 {
+				continue
+			}
+			addr := strings.Split(ip.Address, "/")[0]
+			if ip.Interface.VirtualMachine != nil {
+				localCache[ip.Interface.VirtualMachine.Name] = addr
+			} else if ip.Interface.Device != nil {
+				dev := ip.Interface.Device
+				// Add both name and display if they're different
+				if dev.Name != "" {
+					localCache[dev.Name] = addr
+				}
+				if dev.DisplayName != "" && dev.Name != dev.DisplayName {
+					localCache[dev.DisplayName] = addr
+				}
+			} else {
+				log.Debugf("IP %d [%s] has no device or virtual machine associated with its interface", ip.ID, addr)
+			}
+		}
+		if records.Next == nil {
+			break
+		}
+		// Get next page
+		records, err = doRequest(ctx, *records.Next, token)
+		if err != nil {
+			log.Errorf("cannot get next page: %v", err)
+			break
+		}
+	}
+	return nil
 }

@@ -17,7 +17,6 @@ package netbox
 
 import (
 	"errors"
-	"time"
 
 	"github.com/coredns/coredns/core/dnsserver"
 	"github.com/coredns/coredns/plugin"
@@ -40,20 +39,17 @@ func setup(c *caddy.Controller) error {
 	// Add the Plugin to CoreDNS, so Servers can use it in their plugin chain.
 	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
 		netboxPlugin.Next = next
-		return netboxPlugin
+		return *netboxPlugin
 	})
 
 	// All OK, return a nil error.
 	return nil
 }
 
-func newNetBox(c *caddy.Controller) (Netbox, error) {
+func newNetBox(c *caddy.Controller) (*Netbox, error) {
 
 	url := ""
 	token := ""
-	localCacheDuration := ""
-	duration := time.Second
-	var err error
 
 	for c.Next() {
 		if c.NextBlock() {
@@ -61,25 +57,15 @@ func newNetBox(c *caddy.Controller) (Netbox, error) {
 				switch c.Val() {
 				case "url":
 					if !c.NextArg() {
-						c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					url = c.Val()
 
 				case "token":
 					if !c.NextArg() {
-						c.ArgErr()
+						return nil, c.ArgErr()
 					}
 					token = c.Val()
-
-				case "localCacheDuration":
-					if !c.NextArg() {
-						c.ArgErr()
-					}
-					localCacheDuration = c.Val()
-					duration, err = time.ParseDuration(localCacheDuration)
-					if err != nil {
-						localCacheDuration = ""
-					}
 				}
 
 				if !c.Next() {
@@ -90,10 +76,10 @@ func newNetBox(c *caddy.Controller) (Netbox, error) {
 
 	}
 
-	if url == "" || token == "" || localCacheDuration == "" {
-		return Netbox{}, errors.New("could not parse netbox config")
+	if url == "" || token == "" {
+		return nil, errors.New("could not parse netbox config")
 	}
 
-	return Netbox{Url: url, Token: token, CacheDuration: duration}, nil
+	return &Netbox{Url: url, Token: token}, nil
 
 }
