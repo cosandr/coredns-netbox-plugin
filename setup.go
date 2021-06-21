@@ -17,6 +17,7 @@ package netbox
 
 import (
 	"errors"
+	"net/url"
 	"time"
 
 	"github.com/coredns/coredns/core/dnsserver"
@@ -49,7 +50,7 @@ func setup(c *caddy.Controller) error {
 
 func newNetBox(c *caddy.Controller) (Netbox, error) {
 
-	url := ""
+	nbURL := ""
 	token := ""
 	localCacheDuration := ""
 	duration := time.Second
@@ -63,7 +64,7 @@ func newNetBox(c *caddy.Controller) (Netbox, error) {
 					if !c.NextArg() {
 						c.ArgErr()
 					}
-					url = c.Val()
+					nbURL = c.Val()
 
 				case "token":
 					if !c.NextArg() {
@@ -90,10 +91,13 @@ func newNetBox(c *caddy.Controller) (Netbox, error) {
 
 	}
 
-	if url == "" || token == "" || localCacheDuration == "" {
+	if nbURL == "" || token == "" || localCacheDuration == "" {
 		return Netbox{}, errors.New("could not parse netbox config")
 	}
-
-	return Netbox{Url: url, Token: token, CacheDuration: duration}, nil
+	u, err := url.Parse(nbURL)
+	if err != nil {
+		return Netbox{}, err
+	}
+	return Netbox{URL: u, Token: token, CacheDuration: duration}, nil
 
 }

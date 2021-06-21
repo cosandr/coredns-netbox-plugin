@@ -17,6 +17,7 @@ package netbox
 
 import (
 	"context"
+	"net/url"
 	"testing"
 	"time"
 
@@ -33,7 +34,13 @@ func TestQuery(t *testing.T) {
 
 	want := "10.0.0.2"
 	ctx := context.Background()
-	got := query(ctx, "https://example.org/api/ipam/ip-addresses", "mytoken", "my_host", time.Millisecond*100)
+	u, _ := url.Parse("https://example.org")
+	n := Netbox{
+		URL:           u,
+		Token:         "mytoken",
+		CacheDuration: time.Millisecond * 100,
+	}
+	got := n.query(ctx, "my_host")
 	if got != want {
 		t.Fatalf("Expected %s but got %s", want, got)
 	}
@@ -49,7 +56,13 @@ func TestNoSuchHost(t *testing.T) {
 
 	want := ""
 	ctx := context.Background()
-	got := query(ctx, "https://example.org/api/ipam/ip-addresses", "mytoken", "NoSuchHost", time.Millisecond*100)
+	u, _ := url.Parse("https://example.org")
+	n := Netbox{
+		URL:           u,
+		Token:         "mytoken",
+		CacheDuration: time.Millisecond * 100,
+	}
+	got := n.query(ctx, "NoSuchHost")
 	if got != want {
 		t.Fatalf("Expected empty string but got %s", got)
 	}
@@ -66,7 +79,13 @@ func TestLocalCache(t *testing.T) {
 	ipAddress := ""
 
 	ctx := context.Background()
-	got := query(ctx, "https://example.org/api/ipam/ip-addresses", "mytoken", "my_host", time.Millisecond*100)
+	u, _ := url.Parse("https://example.org")
+	n := Netbox{
+		URL:           u,
+		Token:         "mytoken",
+		CacheDuration: time.Millisecond * 100,
+	}
+	got := n.query(ctx, "my_host")
 
 	item, err := localCache.Get("my_host")
 	if err == nil {
@@ -85,7 +104,13 @@ func TestLocalCacheExpiration(t *testing.T) {
 		`{"count":1, "results":[{"address": "10.0.0.2/25", "dns_name": "my_host"}]}`)
 
 	ctx := context.Background()
-	query(ctx, "https://example.org/api/ipam/ip-addresses", "mytoken", "my_host", time.Millisecond*100)
+	u, _ := url.Parse("https://example.org")
+	n := Netbox{
+		URL:           u,
+		Token:         "mytoken",
+		CacheDuration: time.Millisecond * 100,
+	}
+	n.query(ctx, "my_host")
 	<-time.After(101 * time.Millisecond)
 	item, err := localCache.Get("my_host")
 	if err != nil {

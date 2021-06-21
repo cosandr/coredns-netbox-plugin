@@ -18,73 +18,108 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
-	"strings"
+	"path"
 	"time"
 
 	"github.com/imkira/go-ttlmap"
 )
 
-type IP struct {
-	Address string `json:"address"`
+type IPAddress struct {
+	ID                 int    `json:"id"`
+	Display            string `json:"display"`
+	Address            string `json:"address"`
+	AssignedObjectType string `json:"assigned_object_type"`
+	AssignedObjectId   int    `json:"assigned_object_id"`
+	DnsName            string `json:"dns_name"`
 }
 
-type Record struct {
-	PrimaryIP4 IP     `json:"primary_ip4"`
-	Name       string `json:"name,omitempty"`
-}
-
-type RecordsList struct {
-	Records []Record `json:"results"`
+type IPAddressResults struct {
+	Count   int         `json:"count"`
+	Results []IPAddress `json:"results"`
 }
 
 var localCache = ttlmap.New(nil)
 var client = &http.Client{Timeout: 5 * time.Second}
 
-func query(ctx context.Context, url, token, dnsName string, duration time.Duration) string {
-	item, err := localCache.Get(dnsName)
-	if err == nil {
-		log.Debugf("found in local cache %s", dnsName)
-		return item.Value().(string)
-	}
-	records := RecordsList{}
+func (n Netbox) runRequest(ctx context.Context, endpoint string, params map[string]string, out interface{}) error {
 	var resp *http.Response
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/api/dcim/devices/", url), nil)
+	u := *n.URL
+	u.Path = path.Join(u.Path, "api/", endpoint)
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String()+"/", nil)
 	if err != nil {
 		log.Errorf("cannot create request %v", err)
-		return ""
+		return err
 	}
 	q := req.URL.Query()
-	q.Add("name", dnsName)
+	for k, v := range params {
+		q.Add(k, v)
+	}
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("Authorization", fmt.Sprintf("Token %s", token))
+	req.Header.Set("Authorization", fmt.Sprintf("Token %s", n.Token))
 
 	log.Debugf("GET %s", req.URL.String())
 	resp, err = client.Do(req)
 	if err != nil {
 		log.Errorf("HTTP Error %v", err)
-		return ""
+		return err
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		log.Errorf("invalid response code %d", resp.StatusCode)
-		return ""
+		return err
 	}
 	defer resp.Body.Close()
 
-	err = json.NewDecoder(resp.Body).Decode(&records)
+	err = json.NewDecoder(resp.Body).Decode(out)
 	if err != nil {
 		log.Errorf("could not unmarshal response %v", err)
+		return err
+	}
+	return nil
+}
+
+func (n Netbox) getAddresses(ctx context.Context, name string) ([]string, error) {
+	params := map[string]string{
+		"dns_name": name,
+	}
+	ret := make([]string, 0)
+	results := IPAddressResults{}
+	err := n.runRequest(ctx, "ipam/ip-addresses/", params, &results)
+	if err != nil {
+		return ret, err
+	}
+	if results.Count == 0 {
+		log.Debugf("device %s not found", name)
+		return ret, nil
+	}
+	log.Debugf("found %d device(s)", results.Count)
+	for _, r := range results.Results {
+		ip, _, err := net.ParseCIDR(r.Address)
+		if err != nil {
+			log.Warning(err)
+			continue
+		}
+		ret = append(ret, ip.String())
+		log.Debugf("added %s for device %s", ip.String(), name)
+	}
+	return ret, nil
+}
+
+func (n Netbox) query(ctx context.Context, dnsName string) string {
+	item, err := localCache.Get(dnsName)
+	if err == nil {
+		log.Debugf("found in local cache %s", dnsName)
+		return item.Value().(string)
+	}
+	addr, err := n.getAddresses(ctx, dnsName)
+	if err != nil || len(addr) == 0 {
 		return ""
 	}
-
-	if len(records.Records) == 0 {
-		log.Debug("record not found")
-		return ""
+	err = localCache.Set(dnsName, ttlmap.NewItem(addr[0], ttlmap.WithTTL(n.CacheDuration)), nil)
+	if err != nil {
+		log.Warning(err)
 	}
-
-	ipAddress := strings.Split(records.Records[0].PrimaryIP4.Address, "/")[0]
-	log.Debugf("record found %s", ipAddress)
-	localCache.Set(dnsName, ttlmap.NewItem(ipAddress, ttlmap.WithTTL(duration)), nil)
-	return ipAddress
+	return addr[0]
 }

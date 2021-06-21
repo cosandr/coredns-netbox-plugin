@@ -18,6 +18,7 @@ package netbox
 import (
 	"context"
 	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -31,7 +32,7 @@ import (
 var log = clog.NewWithPlugin("netbox")
 
 type Netbox struct {
-	Url           string
+	URL           *url.URL
 	Token         string
 	CacheDuration time.Duration
 	Next          plugin.Handler
@@ -40,8 +41,15 @@ type Netbox struct {
 func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 
 	state := request.Request{W: w, Req: r}
+	search := strings.TrimRight(state.QName(), ".")
+	// Remove domain
+	s := strings.Split(search, ".")
+	// Only change if we have a domain
+	if len(s) > 1 {
+		search = strings.Join(s[:len(s)-1], ".")
+	}
 
-	ipAddress := query(ctx, n.Url, n.Token, strings.TrimRight(state.QName(), "."), n.CacheDuration)
+	ipAddress := n.query(ctx, search)
 	// no IP is found in netbox pass processing to the next plugin
 	if len(ipAddress) == 0 {
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
@@ -57,7 +65,12 @@ func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 	m := new(dns.Msg)
 	m.Answer = []dns.RR{rec}
 	m.SetReply(r)
-	w.WriteMsg(m)
+	err := w.WriteMsg(m)
+
+	if err != nil {
+		log.Error(err)
+		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
+	}
 
 	return dns.RcodeSuccess, nil
 }
