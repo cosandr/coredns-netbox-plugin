@@ -38,6 +38,12 @@ type Netbox struct {
 func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	state := request.Request{W: w, Req: r}
 	search := strings.TrimRight(state.QName(), ".")
+	// Remove domain
+	s := strings.Split(search, ".")
+	// Only change if we have a domain
+	if len(s) > 1 {
+		search = strings.Join(s[:len(s)-1], ".")
+	}
 
 	log.Debugf("searching for '%s', %d names in cache", search, len(localCache))
 	ipAddress, ok := localCache[search]
