@@ -107,19 +107,19 @@ func (n Netbox) getAddresses(ctx context.Context, name string) ([]string, error)
 	return ret, nil
 }
 
-func (n Netbox) query(ctx context.Context, dnsName string) string {
+func (n Netbox) query(ctx context.Context, dnsName string) []string {
 	item, err := localCache.Get(dnsName)
 	if err == nil {
 		log.Debugf("found in local cache %s", dnsName)
-		return item.Value().(string)
+		return item.Value().([]string)
 	}
 	addr, err := n.getAddresses(ctx, dnsName)
 	if err != nil || len(addr) == 0 {
-		return ""
+		return []string{}
 	}
-	err = localCache.Set(dnsName, ttlmap.NewItem(addr[0], ttlmap.WithTTL(n.CacheDuration)), nil)
+	err = localCache.Set(dnsName, ttlmap.NewItem(addr, ttlmap.WithTTL(n.CacheDuration)), nil)
 	if err != nil {
 		log.Warning(err)
 	}
-	return addr[0]
+	return addr
 }

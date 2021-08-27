@@ -49,9 +49,9 @@ func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 		search = strings.Join(s[:len(s)-1], ".")
 	}
 
-	ipAddress := n.query(ctx, search)
-	// no IP is found in netbox pass processing to the next plugin
-	if len(ipAddress) == 0 {
+	ips := n.query(ctx, search)
+	// no IPs found in netbox pass processing to the next plugin
+	if len(ips) == 0 {
 		return plugin.NextOrFailure(n.Name(), n.Next, ctx, w, r)
 	}
 
@@ -59,11 +59,16 @@ func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) 
 	// server handling the request.
 	requestCount.WithLabelValues(metrics.WithServer(ctx)).Inc()
 
-	rec := new(dns.A)
-	rec.Hdr = dns.RR_Header{Name: state.QName(), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600}
-	rec.A = net.ParseIP(ipAddress)
+	var records []dns.RR
+	for _, ipAddress := range ips {
+		rec := new(dns.A)
+		rec.Hdr = dns.RR_Header{Name: state.QName(), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600}
+		rec.A = net.ParseIP(ipAddress)
+		records = append(records, rec)
+	}
+
 	m := new(dns.Msg)
-	m.Answer = []dns.RR{rec}
+	m.Answer = records
 	m.SetReply(r)
 	err := w.WriteMsg(m)
 
