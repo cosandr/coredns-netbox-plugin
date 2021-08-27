@@ -18,6 +18,7 @@ package netbox
 import (
 	"errors"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/coredns/coredns/core/dnsserver"
@@ -48,6 +49,15 @@ func setup(c *caddy.Controller) error {
 	return nil
 }
 
+func contains(lst []string, v string) bool {
+	for _, e := range lst {
+		if e == v {
+			return true
+		}
+	}
+	return false
+}
+
 func newNetBox(c *caddy.Controller) (Netbox, error) {
 
 	nbURL := ""
@@ -55,49 +65,66 @@ func newNetBox(c *caddy.Controller) (Netbox, error) {
 	localCacheDuration := ""
 	duration := time.Second
 	var err error
+	nb := Netbox{}
+	allowedPriorities := []string{"dns_name", "virtual_machine", "device"}
 
 	for c.Next() {
-		if c.NextBlock() {
-			for {
-				switch c.Val() {
-				case "url":
-					if !c.NextArg() {
-						c.ArgErr()
-					}
-					nbURL = c.Val()
-
-				case "token":
-					if !c.NextArg() {
-						c.ArgErr()
-					}
-					token = c.Val()
-
-				case "localCacheDuration":
-					if !c.NextArg() {
-						c.ArgErr()
-					}
-					localCacheDuration = c.Val()
-					duration, err = time.ParseDuration(localCacheDuration)
-					if err != nil {
-						localCacheDuration = ""
+		for c.NextBlock() {
+			switch c.Val() {
+			case "url":
+				if !c.NextArg() {
+					return nb, c.ArgErr()
+				}
+				nbURL = c.Val()
+			case "token":
+				if !c.NextArg() {
+					return nb, c.ArgErr()
+				}
+				token = c.Val()
+			case "localCacheDuration":
+				if !c.NextArg() {
+					return nb, c.ArgErr()
+				}
+				localCacheDuration = c.Val()
+				duration, err = time.ParseDuration(localCacheDuration)
+				if err != nil {
+					localCacheDuration = ""
+				}
+			case "priority":
+				nb.Priority = c.RemainingArgs()
+				if len(nb.Priority) == 0 {
+					nb.Priority = allowedPriorities
+				} else {
+					for _, v := range nb.Priority {
+						if !contains(allowedPriorities, v) {
+							return nb, c.Errf("unknown priority: %s", v)
+						}
 					}
 				}
-
-				if !c.Next() {
-					break
+			case "stop_when_found":
+				if !c.NextArg() {
+					return nb, c.ArgErr()
 				}
+				nb.StopFound, err = strconv.ParseBool(c.Val())
+				if err != nil {
+					return nb, err
+				}
+			default:
+				return nb, c.Errf("unknown property: %q", c.Val())
 			}
 		}
-
 	}
 
 	if nbURL == "" || token == "" || localCacheDuration == "" {
-		return Netbox{}, errors.New("could not parse netbox config")
+		return nb, errors.New("could not parse netbox config")
 	}
 	u, err := url.Parse(nbURL)
 	if err != nil {
-		return Netbox{}, err
+		return nb, err
 	}
-	return Netbox{URL: u, Token: token, CacheDuration: duration}, nil
+	nb.URL = u
+	nb.Token = token
+	nb.CacheDuration = duration
+	return nb, nil
 
 }

@@ -81,28 +81,34 @@ func (n Netbox) runRequest(ctx context.Context, endpoint string, params map[stri
 }
 
 func (n Netbox) getAddresses(ctx context.Context, name string) ([]string, error) {
-	params := map[string]string{
-		"dns_name": name,
-	}
+	// search dns_name, device, virtual_machine
 	ret := make([]string, 0)
-	results := IPAddressResults{}
-	err := n.runRequest(ctx, "ipam/ip-addresses/", params, &results)
-	if err != nil {
-		return ret, err
-	}
-	if results.Count == 0 {
-		log.Debugf("device %s not found", name)
-		return ret, nil
-	}
-	log.Debugf("found %d device(s)", results.Count)
-	for _, r := range results.Results {
-		ip, _, err := net.ParseCIDR(r.Address)
+	for _, prio := range n.Priority {
+		params := map[string]string{
+			prio: name,
+		}
+		results := IPAddressResults{}
+		err := n.runRequest(ctx, "ipam/ip-addresses/", params, &results)
 		if err != nil {
-			log.Warning(err)
+			return ret, err
+		}
+		if results.Count == 0 {
+			log.Debugf("%s %s not found", prio, name)
 			continue
 		}
-		ret = append(ret, ip.String())
-		log.Debugf("added %s for device %s", ip.String(), name)
+		log.Debugf("found %d %s(s)", results.Count, prio)
+		for _, r := range results.Results {
+			ip, _, err := net.ParseCIDR(r.Address)
+			if err != nil {
+				log.Warning(err)
+				continue
+			}
+			ret = append(ret, ip.String())
+			log.Debugf("added %s for %s %s", ip.String(), prio, name)
+		}
+		if n.StopFound {
+			break
+		}
 	}
 	return ret, nil
 }

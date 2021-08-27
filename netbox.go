@@ -35,7 +35,9 @@ type Netbox struct {
 	URL           *url.URL
 	Token         string
 	CacheDuration time.Duration
+	Priority      []string
 	Next          plugin.Handler
+	StopFound     bool
 }
 
 func (n Netbox) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
